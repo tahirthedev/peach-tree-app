@@ -15,6 +15,10 @@ app.use(express.static('public'));
 let wholesalePrices = {};
 let wholesaleCustomers = new Set();
 
+// Shopify API configuration
+const SHOPIFY_DOMAIN = process.env.SHOPIFY_DOMAIN; // e.g., 'your-store.myshopify.com'
+const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+
 // Routes
 app.get('/', (req, res) => {
   res.send(`
@@ -168,7 +172,58 @@ app.get('/api/wholesale-price/:productId', (req, res) => {
   res.json({ price: price || null });
 });
 
+// API to create wholesale discount code
+app.post('/api/create-wholesale-discount/:email', async (req, res) => {
+  const { email } = req.params;
+  
+  if (!wholesaleCustomers.has(email)) {
+    return res.status(403).json({ error: 'Customer is not authorized for wholesale pricing' });
+  }
+
+  try {
+    // Create a unique discount code for this customer
+    const discountCode = `WHOLESALE-${email.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()}-${Date.now()}`;
+    
+    // Calculate discount percentage based on wholesale prices
+    // This is a simplified approach - you might want to create specific discounts per product
+    const discountPercentage = 50; // Example: 50% off for wholesale customers
+    
+    const discount = {
+      price_rule: {
+        title: `Wholesale Discount for ${email}`,
+        target_type: 'line_item',
+        target_selection: 'all',
+        allocation_method: 'across',
+        value_type: 'percentage',
+        value: `-${discountPercentage}.0`,
+        customer_selection: 'prerequisite',
+        prerequisite_customer_ids: [], // You'd need to get the Shopify customer ID
+        once_per_customer: false,
+        usage_limit: null,
+        starts_at: new Date().toISOString(),
+        ends_at: null
+      }
+    };
+
+    // Note: This requires Shopify API integration
+    // For now, return the discount code
+    res.json({ 
+      discountCode,
+      message: 'Apply this code at checkout for wholesale pricing',
+      discountPercentage
+    });
+    
+  } catch (error) {
+    console.error('Error creating discount:', error);
+    res.status(500).json({ error: 'Failed to create discount code' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`PeachTree Wholesale App running on http://localhost:${PORT}`);
   console.log('Visit the URL above to manage wholesale customers and prices');
+  console.log('');
+  console.log('IMPORTANT: Add these environment variables for Shopify integration:');
+  console.log('SHOPIFY_DOMAIN=your-store.myshopify.com');
+  console.log('SHOPIFY_ACCESS_TOKEN=your-access-token');
 });
