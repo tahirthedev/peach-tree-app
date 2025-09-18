@@ -224,7 +224,14 @@ app.get('/api/wholesale-prices', (req, res) => {
 
 app.post('/api/wholesale-prices', (req, res) => {
   const { productId, price } = req.body;
+  console.log('Setting wholesale price:', productId, price, typeof productId);
+  
+  // Store both string and number versions to handle type mismatches
   wholesalePrices[productId] = price;
+  wholesalePrices[String(productId)] = price;
+  wholesalePrices[Number(productId)] = price;
+  
+  console.log('Updated wholesale prices:', wholesalePrices);
   res.json({ success: true, productId, price });
 });
 
@@ -269,7 +276,13 @@ app.get('/api/check-wholesale/:email', (req, res) => {
 // API to get wholesale price for product (for theme integration)
 app.get('/api/wholesale-price/:productId', (req, res) => {
   const { productId } = req.params;
-  const price = wholesalePrices[productId];
+  console.log('Wholesale price request for product ID:', productId, typeof productId);
+  console.log('Available wholesale prices:', wholesalePrices);
+  
+  // Try both string and number versions
+  let price = wholesalePrices[productId] || wholesalePrices[String(productId)] || wholesalePrices[Number(productId)];
+  
+  console.log('Found price:', price);
   res.json({ price: price || null });
 });
 
