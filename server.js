@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
@@ -16,8 +17,77 @@ let wholesalePrices = {};
 let wholesaleCustomers = new Set();
 
 // Shopify API configuration
-const SHOPIFY_DOMAIN = process.env.SHOPIFY_DOMAIN; // e.g., 'your-store.myshopify.com'
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+const SHOPIFY_API = {
+  domain: process.env.SHOPIFY_STORE_DOMAIN,
+  token: process.env.SHOPIFY_ACCESS_TOKEN,
+  version: process.env.SHOPIFY_API_VERSION || '2023-10'
+};
+
+// Create Shopify API client
+const shopifyAPI = axios.create({
+  baseURL: `https://${SHOPIFY_API.domain}/admin/api/${SHOPIFY_API.version}`,
+  headers: {
+    'X-Shopify-Access-Token': SHOPIFY_API.token,
+    'Content-Type': 'application/json'
+  }
+});
+
+// Generate unique discount code
+function generateDiscountCode(customerEmail, discountAmount) {
+  const timestamp = Date.now();
+  const cleanEmail = customerEmail.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  return `WS-${cleanEmail.slice(0, 8)}-${discountAmount.replace('.', '')}-${timestamp}`;
+}
+
+// Create Shopify discount code
+async function createShopifyDiscount(discountCode, discountAmount, customerEmail) {
+  try {
+    console.log(`Creating discount: ${discountCode} for $${discountAmount}`);
+    
+    // First create price rule
+    const priceRule = {
+      price_rule: {
+        title: `Wholesale Discount - ${customerEmail}`,
+        target_type: 'line_item',
+        target_selection: 'all',
+        allocation_method: 'across',
+        value_type: 'fixed_amount',
+        value: `-${discountAmount}`,
+        once_per_customer: false,
+        usage_limit: 1,
+        starts_at: new Date().toISOString(),
+        ends_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
+      }
+    };
+
+    const priceRuleResponse = await shopifyAPI.post('/price_rules.json', priceRule);
+    const priceRuleId = priceRuleResponse.data.price_rule.id;
+    console.log(`Price rule created with ID: ${priceRuleId}`);
+
+    // Then create discount code
+    const discountCodeData = {
+      discount_code: {
+        code: discountCode,
+        usage_count: 0
+      }
+    };
+
+    await shopifyAPI.post(`/price_rules/${priceRuleId}/discount_codes.json`, discountCodeData);
+    console.log(`Discount code created: ${discountCode}`);
+
+    return {
+      success: true,
+      discountCode,
+      priceRuleId
+    };
+  } catch (error) {
+    console.error('Error creating Shopify discount:', error.response?.data || error.message);
+    return {
+      success: false,
+      error: error.response?.data || error.message
+    };
+  }
+}
 
 // Routes
 app.get('/', (req, res) => {
@@ -170,6 +240,92 @@ app.get('/api/wholesale-price/:productId', (req, res) => {
   const { productId } = req.params;
   const price = wholesalePrices[productId];
   res.json({ price: price || null });
+});
+
+// Process wholesale checkout - NEW FUNCTIONALITY
+app.post('/api/process-wholesale-checkout', async (req, res) => {
+  const { customerEmail, cartItems, cartTotal } = req.body;
+
+  try {
+    console.log(`Processing wholesale checkout for: ${customerEmail}`);
+    console.log(`Cart total: $${cartTotal}`);
+    console.log(`Cart items:`, cartItems);
+
+    // Check if customer is wholesale
+    if (!wholesaleCustomers.has(customerEmail)) {
+      return res.status(403).json({ error: 'Not a wholesale customer' });
+    }
+
+    // Calculate wholesale total
+    let wholesaleTotal = 0;
+    let hasWholesaleItems = false;
+
+    for (const item of cartItems) {
+      const productId = item.product_id.toString();
+      const quantity = item.quantity;
+      const regularPrice = item.price;
+
+      console.log(`Processing item - Product ID: ${productId}, Quantity: ${quantity}, Regular Price: $${regularPrice}`);
+
+      if (wholesalePrices[productId]) {
+        const wholesaleLineTotal = wholesalePrices[productId] * quantity;
+        wholesaleTotal += wholesaleLineTotal;
+        hasWholesaleItems = true;
+        console.log(`Wholesale price found: $${wholesalePrices[productId]} x ${quantity} = $${wholesaleLineTotal}`);
+      } else {
+        wholesaleTotal += regularPrice * quantity;
+        console.log(`No wholesale price, using regular: $${regularPrice} x ${quantity}`);
+      }
+    }
+
+    console.log(`Wholesale total: $${wholesaleTotal}`);
+
+    // If no wholesale items, proceed normally
+    if (!hasWholesaleItems) {
+      console.log('No wholesale items found, proceeding with regular checkout');
+      return res.json({ 
+        requiresDiscount: false,
+        checkoutUrl: '/checkout'
+      });
+    }
+
+    // Calculate discount needed
+    const discountAmount = cartTotal - wholesaleTotal;
+    console.log(`Discount amount needed: $${discountAmount}`);
+
+    if (discountAmount <= 0) {
+      console.log('No discount needed, wholesale price is same or higher');
+      return res.json({ 
+        requiresDiscount: false,
+        checkoutUrl: '/checkout'
+      });
+    }
+
+    // Generate and create discount code
+    const discountCode = generateDiscountCode(customerEmail, discountAmount.toFixed(2));
+    const discountResult = await createShopifyDiscount(discountCode, discountAmount.toFixed(2), customerEmail);
+
+    if (discountResult.success) {
+      console.log(`Discount code created successfully: ${discountCode}`);
+      return res.json({
+        requiresDiscount: true,
+        discountCode,
+        discountAmount: discountAmount.toFixed(2),
+        wholesaleTotal: wholesaleTotal.toFixed(2),
+        checkoutUrl: `/checkout?discount=${discountCode}`
+      });
+    } else {
+      console.error('Failed to create discount code:', discountResult.error);
+      return res.status(500).json({ 
+        error: 'Failed to create discount code',
+        details: discountResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Error processing wholesale checkout:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // API to create wholesale discount code
