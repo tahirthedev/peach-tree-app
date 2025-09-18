@@ -378,6 +378,8 @@ app.post('/api/create-wholesale-discount/:email', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`PeachTree Wholesale App running on http://localhost:${PORT}`);
   console.log('Visit the URL above to manage wholesale customers and prices');
+  console.log('Environment:', process.env.NODE_ENV || 'development');
+  console.log('Shopify API configured:', !!process.env.SHOPIFY_ACCESS_TOKEN);
   console.log('');
   console.log('IMPORTANT: Add these environment variables for Shopify integration:');
   console.log('SHOPIFY_DOMAIN=your-store.myshopify.com');
