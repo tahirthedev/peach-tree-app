@@ -53,6 +53,7 @@ async function createShopifyDiscount(discountCode, discountAmount, customerEmail
         allocation_method: 'across',
         value_type: 'fixed_amount',
         value: `-${discountAmount}`,
+        customer_selection: 'all',  // Fixed: specify customer selection
         once_per_customer: false,
         usage_limit: 1,
         starts_at: new Date().toISOString(),
