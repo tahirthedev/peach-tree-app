@@ -228,6 +228,37 @@ app.post('/api/wholesale-prices', (req, res) => {
   res.json({ success: true, productId, price });
 });
 
+// Test Shopify API connection
+app.get('/api/test-shopify', async (req, res) => {
+  try {
+    console.log('Testing Shopify API connection...');
+    console.log('Domain:', process.env.SHOPIFY_STORE_DOMAIN);
+    console.log('Token present:', !!process.env.SHOPIFY_ACCESS_TOKEN);
+    
+    if (!process.env.SHOPIFY_ACCESS_TOKEN || !process.env.SHOPIFY_STORE_DOMAIN) {
+      return res.status(500).json({ 
+        error: 'Missing Shopify credentials',
+        hasToken: !!process.env.SHOPIFY_ACCESS_TOKEN,
+        hasDomain: !!process.env.SHOPIFY_STORE_DOMAIN
+      });
+    }
+
+    // Test shop API call
+    const shopResponse = await shopifyAPI.get('/shop.json');
+    res.json({ 
+      success: true, 
+      shopName: shopResponse.data.shop.name,
+      message: 'Shopify API working on Railway!' 
+    });
+  } catch (error) {
+    console.error('Shopify API test failed:', error.message);
+    res.status(500).json({ 
+      error: 'Shopify API failed',
+      details: error.response?.data || error.message 
+    });
+  }
+});
+
 // API to check if customer is wholesale (for theme integration)
 app.get('/api/check-wholesale/:email', (req, res) => {
   const { email } = req.params;
