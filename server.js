@@ -219,6 +219,19 @@ app.post('/api/wholesale-customers', (req, res) => {
   res.json({ success: true, email });
 });
 
+// Remove wholesale customer
+app.delete('/api/wholesale-customers/:email', (req, res) => {
+  const { email } = req.params;
+  const wasDeleted = wholesaleCustomers.delete(email);
+  
+  if (wasDeleted) {
+    console.log(`Removed wholesale customer: ${email}`);
+    res.json({ success: true, message: `Wholesale customer ${email} removed successfully` });
+  } else {
+    res.status(404).json({ success: false, message: `Wholesale customer ${email} not found` });
+  }
+});
+
 app.get('/api/wholesale-prices', (req, res) => {
   res.json(wholesalePrices);
 });
@@ -242,6 +255,60 @@ app.post('/api/wholesale-prices', (req, res) => {
   
   console.log('Updated wholesale prices:', wholesalePrices);
   res.json({ success: true, productId: cleanProductId, price });
+});
+
+// Update wholesale price (PUT for explicit updates)
+app.put('/api/wholesale-prices', (req, res) => {
+  const { productId, price } = req.body;
+  const cleanProductId = String(productId).trim();
+  
+  // Check if product exists
+  if (!wholesalePrices.hasOwnProperty(cleanProductId)) {
+    return res.status(404).json({ 
+      success: false, 
+      message: `Wholesale price for product ${cleanProductId} not found` 
+    });
+  }
+  
+  const oldPrice = wholesalePrices[cleanProductId];
+  wholesalePrices[cleanProductId] = price;
+  
+  console.log(`Updated wholesale price for ${cleanProductId}: $${oldPrice} → $${price}`);
+  res.json({ 
+    success: true, 
+    productId: cleanProductId, 
+    oldPrice,
+    newPrice: price,
+    message: `Price updated from $${oldPrice} to $${price}`
+  });
+});
+
+// Remove wholesale price
+app.delete('/api/wholesale-prices/:productId', (req, res) => {
+  const { productId } = req.params;
+  const cleanProductId = String(productId).trim();
+  
+  // Check if product exists and remove all variations
+  let removed = false;
+  Object.keys(wholesalePrices).forEach(key => {
+    if (String(key).trim() === cleanProductId) {
+      delete wholesalePrices[key];
+      removed = true;
+    }
+  });
+  
+  if (removed) {
+    console.log(`Removed wholesale price for product: ${cleanProductId}`);
+    res.json({ 
+      success: true, 
+      message: `Wholesale price for product ${cleanProductId} removed successfully` 
+    });
+  } else {
+    res.status(404).json({ 
+      success: false, 
+      message: `Wholesale price for product ${cleanProductId} not found` 
+    });
+  }
 });
 
 // Test Shopify API connection
