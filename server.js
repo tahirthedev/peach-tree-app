@@ -227,13 +227,21 @@ app.post('/api/wholesale-prices', (req, res) => {
   const { productId, price } = req.body;
   console.log('Setting wholesale price:', productId, price, typeof productId);
   
-  // Store both string and number versions to handle type mismatches
-  wholesalePrices[productId] = price;
-  wholesalePrices[String(productId)] = price;
-  wholesalePrices[Number(productId)] = price;
+  // Clean up any existing entries for this product ID
+  const cleanProductId = String(productId).trim();
+  
+  // Remove all variations of this product ID
+  Object.keys(wholesalePrices).forEach(key => {
+    if (String(key).trim() === cleanProductId) {
+      delete wholesalePrices[key];
+    }
+  });
+  
+  // Store the clean version
+  wholesalePrices[cleanProductId] = price;
   
   console.log('Updated wholesale prices:', wholesalePrices);
-  res.json({ success: true, productId, price });
+  res.json({ success: true, productId: cleanProductId, price });
 });
 
 // Test Shopify API connection
@@ -277,11 +285,12 @@ app.get('/api/check-wholesale/:email', (req, res) => {
 // API to get wholesale price for product (for theme integration)
 app.get('/api/wholesale-price/:productId', (req, res) => {
   const { productId } = req.params;
-  console.log('Wholesale price request for product ID:', productId, typeof productId);
+  const cleanProductId = String(productId).trim();
+  console.log('Wholesale price request for product ID:', cleanProductId);
   console.log('Available wholesale prices:', wholesalePrices);
   
-  // Try both string and number versions
-  let price = wholesalePrices[productId] || wholesalePrices[String(productId)] || wholesalePrices[Number(productId)];
+  // Try to find the price with the clean product ID
+  const price = wholesalePrices[cleanProductId];
   
   console.log('Found price:', price);
   res.json({ price: price || null });
@@ -306,20 +315,22 @@ app.post('/api/process-wholesale-checkout', async (req, res) => {
     let hasWholesaleItems = false;
 
     for (const item of cartItems) {
-      const productId = item.product_id.toString();
+      const productId = String(item.product_id).trim();
       const quantity = item.quantity;
-      const regularPrice = item.price;
+      const regularPrice = item.price; // This should be per-item price
 
-      console.log(`Processing item - Product ID: ${productId}, Quantity: ${quantity}, Regular Price: $${regularPrice}`);
+      console.log(`Processing item - Product ID: ${productId}, Quantity: ${quantity}, Regular Price per item: $${regularPrice}`);
+      console.log(`Regular line total: $${regularPrice} x ${quantity} = $${regularPrice * quantity}`);
 
-      if (wholesalePrices[productId]) {
-        const wholesaleLineTotal = wholesalePrices[productId] * quantity;
+      const wholesalePrice = wholesalePrices[productId];
+      if (wholesalePrice) {
+        const wholesaleLineTotal = wholesalePrice * quantity;
         wholesaleTotal += wholesaleLineTotal;
         hasWholesaleItems = true;
-        console.log(`Wholesale price found: $${wholesalePrices[productId]} x ${quantity} = $${wholesaleLineTotal}`);
+        console.log(`Wholesale price found: $${wholesalePrice} x ${quantity} = $${wholesaleLineTotal}`);
       } else {
         wholesaleTotal += regularPrice * quantity;
-        console.log(`No wholesale price, using regular: $${regularPrice} x ${quantity}`);
+        console.log(`No wholesale price, using regular: $${regularPrice} x ${quantity} = $${regularPrice * quantity}`);
       }
     }
 
